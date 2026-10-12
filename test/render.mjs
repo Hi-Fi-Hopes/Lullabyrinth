@@ -21,16 +21,21 @@ let failed = false;
 
 // 0) CPU benchmark: how many times faster than real time each engine renders (single thread, like the audio thread)
 const benchUrl = e => pathToFileURL(path.join(here, 'render.html')).href + '?engine=' + encodeURIComponent(e);
-for (const [label, eng] of [['v1 (first build)', 'engine_v1.js'], ['v2 (slim)', '../app/src/main/assets/engine.js']]) {
-  await page.goto(benchUrl(eng));
-  await page.waitForFunction('window.ready === true');
-  for (const style of ['Moth Choir', 'Glass Cathedral', 'Frost Garden']) {
-    const r = await page.evaluate(o => window.render(o), { seconds: 120, sampleRate: 48000,
-      state: { style, root: 2, scale: 'Dorian', dream: false, macros: { tide: 1, aph: 1, moth: 1, under: 1, petri: 1 } } });
-    const line = `BENCH ${label.padEnd(17)} ${style.padEnd(16)} ${String(r.speed).padStart(6)}x realtime (${r.ms} ms for 120 s)`;
+await page.goto(benchUrl('../app/src/main/assets/engine.js'));
+await page.waitForFunction('window.ready === true');
+const variants = [['baseline', {}], ['no reverb', { noConv: 1 }], ['no compressors', { noComp: 1 }], ['no param updates', { noAuto: 1 }],
+  ['no bells/melody', { noBells: 1 }], ['no pads', { noPads: 1 }], ['no choir', { noChoir: 1 }], ['no air/noise', { noAir: 1 }],
+  ['nothing but drone', { noConv: 1, noComp: 1, noAuto: 1, noBells: 1, noPads: 1, noChoir: 1, noAir: 1 }]];
+for (const style of ['Glass Cathedral', 'Singing Stones']) {
+  for (const [label, flags] of variants) {
+    await page.evaluate(f => { window.LB_BENCH = f; }, flags);
+    const r = await page.evaluate(o => window.render(o), { seconds: 60, sampleRate: 48000,
+      state: { style, root: 2, scale: 'Dorian', dream: true, macros: { tide: .9, aph: .9, moth: .8, under: .7, petri: .8 } } });
+    const line = `BENCH ${style.padEnd(16)} ${label.padEnd(18)} ${String(r.speed).padStart(6)}x realtime`;
     console.log(line); report.push(line);
   }
 }
+await page.evaluate(() => { window.LB_BENCH = {}; });
 await page.goto(benchUrl('../app/src/main/assets/engine.js'));
 await page.waitForFunction('window.ready === true');
 

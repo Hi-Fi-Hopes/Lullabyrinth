@@ -118,6 +118,7 @@ class Engine {
   /* ---------- graph ---------- */
   build() {
     const c = this.ctx;
+    const X = this.X = G.LB_BENCH || {}; // test-only switches for cost profiling
     const g = v => { const n = c.createGain(); n.gain.value = v; return n; };
     const bq = (type, f, q) => { const n = c.createBiquadFilter(); n.type = type; n.frequency.value = f; if (q != null) n.Q.value = q; return n; };
     this.g = g; this.bq = bq;
@@ -144,8 +145,8 @@ class Engine {
     const w2 = c.createOscillator(); w2.frequency.value = .29; const w2g = g(.5); w2.connect(w2g).connect(this.wobDepth);
     this.wobDepth.connect(this.wob.delayTime);
     w1.start(); w2.start();
-    this.mix.connect(this.wob).connect(this.lowShelf).connect(this.highShelf).connect(this.darkLP).connect(this.comp)
-      .connect(this.makeup).connect(this.limiter).connect(this.sleepGain).connect(this.vol).connect(this.out);
+    const pre = this.mix.connect(this.wob).connect(this.lowShelf).connect(this.highShelf).connect(this.darkLP);
+    (X.noComp ? pre : pre.connect(this.comp).connect(this.makeup).connect(this.limiter)).connect(this.sleepGain).connect(this.vol).connect(this.out);
     this.out.connect(this.analyser);
     this.out.connect(c.destination);
 
@@ -156,7 +157,7 @@ class Engine {
     this.conv = c.createConvolver(); this.conv.normalize = true; this.conv.buffer = this.makeImpulse(4.5);
     this.revLP = bq('lowpass', 5000, .5);
     this.revOut = g(1.15);
-    this.revIn.connect(this.revHP).connect(this.conv).connect(this.revLP).connect(this.revOut).connect(this.mix);
+    (X.noConv ? this.revIn.connect(this.revHP) : this.revIn.connect(this.revHP).connect(this.conv)).connect(this.revLP).connect(this.revOut).connect(this.mix);
 
     // ping-pong delay
     this.dlyIn = g(.3);
@@ -323,7 +324,7 @@ class Engine {
     const crk = c.createBufferSource(); crk.buffer = this.makeCrackle(7); crk.loop = true;
     this.crackG = g(0);
     crk.connect(bq('lowpass', 3000, .5)).connect(bq('highpass', 400, .5)).connect(this.crackG).connect(this.layers.weather.bus);
-    [wind, wl, sea, rain, crk].forEach(n => n.start(t));
+    if (!this.X.noAir) [wind, wl, sea, rain, crk].forEach(n => n.start(t));
     this.nextWave = t;
     this.drone = this.makeDrone(t, 10);
   }
@@ -398,10 +399,10 @@ class Engine {
     const lvl = .085 / Math.sqrt(notes.length / 3);
     notes.forEach((m, i) => {
       const pan = (i / Math.max(1, notes.length - 1) - .5) * 1.1 + (this.rng() - .5) * .3;
-      ch.oscs.push(...this.padNote(m, t + this.rng() * 1.5, att, hold, rel, lvl, pan, cg));
+      if (!this.X.noPads) ch.oscs.push(...this.padNote(m, t + this.rng() * 1.5, att, hold, rel, lvl, pan, cg));
     });
     // choir
-    const pc = st.layers.choir * this.sec.choir * .9;
+    const pc = this.X.noChoir ? 0 : st.layers.choir * this.sec.choir * .9;
     if (this.rng() < pc) {
       const n = 2 + (this.rng() < .4 ? 1 : 0);
       const cAtt = clamp(dur * .55, 8, 20), cRel = clamp(dur * .5, 8, 20);
@@ -441,7 +442,7 @@ class Engine {
   /* ---------- ornaments ---------- */
   scheduleBells(now, to) {
     const st = this.style, T = this.live.tide;
-    const rate = st.layers.bell * this.sec.bell * (.012 + .3 * Math.pow(T, 1.2));
+    const rate = this.X.noBells ? 0 : st.layers.bell * this.sec.bell * (.012 + .3 * Math.pow(T, 1.2));
     if (this.nextBell < now) this.nextBell = now + this.rng() * 2;
     if (rate < .002) { this.nextBell = to + 1; return; }
     while (this.nextBell < to) {
@@ -508,7 +509,7 @@ class Engine {
 
   scheduleMel(now, to) {
     const st = this.style, T = this.live.tide;
-    const rate = st.layers.mel * this.sec.mel * (.004 + .05 * T);
+    const rate = this.X.noBells ? 0 : st.layers.mel * this.sec.mel * (.004 + .05 * T);
     if (this.nextPhrase < now) this.nextPhrase = now + 2 + this.rng() * 6;
     if (rate < .001) { this.nextPhrase = to + 1; return; }
     while (this.nextPhrase < to) {
@@ -600,6 +601,8 @@ class Engine {
   applyMacros(now, tc) {
     const { tide: T, aph: A, moth: M, under: U, petri: P } = this.live;
     const st = this.style, s = this.secS;
+    if (this.X.noAuto && this.autoDone) return;
+    this.autoDone = true;
     const set = (p, v, k) => p.setTargetAtTime(v, now, k || tc);
     set(this.dry.gain, 1 - .5 * A);
     set(this.revIn.gain, .25 + .95 * A);
