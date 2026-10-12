@@ -1,7 +1,10 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>render</title></head>
 <body>
-<script src="../app/src/main/assets/engine.js"></script>
+<script>
+  const enginePath = new URLSearchParams(location.search).get('engine') || '../app/src/main/assets/engine.js';
+  document.write('<script src="' + enginePath + '"><\/script>');
+</script>
 <script>
 // Offline render harness: runs the real engine inside Chromium's OfflineAudioContext,
 // calling tick() every 0.25 s of audio time, the same as the app does.
@@ -24,7 +27,9 @@ async function render({ seconds, sampleRate, state, script, wav }) {
     ctx.suspend(t).then(() => { step(ctx.currentTime); ctx.resume(); });
   }
   try { eng.startAt(0); } catch (err) { errors.push('start: ' + err.message); }
+  const t0 = performance.now();
   const buf = await ctx.startRendering();
+  const ms = performance.now() - t0;
   const L = buf.getChannelData(0), R = buf.getChannelData(1);
   let peak = 0, nan = 0;
   const win = sampleRate * 5, rms = [];
@@ -38,7 +43,7 @@ async function render({ seconds, sampleRate, state, script, wav }) {
     }
     rms.push(+(20 * Math.log10(Math.sqrt(s / Math.max(1, n)) + 1e-9)).toFixed(1));
   }
-  const out = { peak: +peak.toFixed(3), peakDb: +(20 * Math.log10(peak + 1e-9)).toFixed(1), nan, rms5s: rms, errors, final: eng.state };
+  const out = { ms: Math.round(ms), speed: +(seconds / (ms / 1000)).toFixed(1), peak: +peak.toFixed(3), peakDb: +(20 * Math.log10(peak + 1e-9)).toFixed(1), nan, rms5s: rms, errors, final: eng.state };
   if (wav) {
     const n = L.length, data = new DataView(new ArrayBuffer(44 + n * 4));
     const ws = (o, s) => { for (let i = 0; i < s.length; i++) data.setUint8(o + i, s.charCodeAt(i)); };

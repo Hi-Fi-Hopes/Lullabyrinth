@@ -129,7 +129,7 @@ class Engine {
     this.comp = c.createDynamicsCompressor();
     this.comp.threshold.value = -22; this.comp.knee.value = 14; this.comp.ratio.value = 3.5;
     this.comp.attack.value = .08; this.comp.release.value = .7;
-    this.makeup = g(2.0);
+    this.makeup = g(1.5);
     this.limiter = c.createDynamicsCompressor();
     this.limiter.threshold.value = -5; this.limiter.knee.value = 0; this.limiter.ratio.value = 20;
     this.limiter.attack.value = .003; this.limiter.release.value = .3;
@@ -137,7 +137,14 @@ class Engine {
     this.vol = g(this.state.volume);
     this.out = g(0);
     this.analyser = c.createAnalyser(); this.analyser.fftSize = 1024;
-    this.mix.connect(this.lowShelf).connect(this.highShelf).connect(this.darkLP).connect(this.comp)
+    // tape drift: one modulated delay on the whole mix (instead of modulating every oscillator)
+    this.wob = c.createDelay(.1); this.wob.delayTime.value = .015;
+    this.wobDepth = g(.0005);
+    const w1 = c.createOscillator(); w1.frequency.value = .11; w1.connect(this.wobDepth);
+    const w2 = c.createOscillator(); w2.frequency.value = .29; const w2g = g(.5); w2.connect(w2g).connect(this.wobDepth);
+    this.wobDepth.connect(this.wob.delayTime);
+    w1.start(); w2.start();
+    this.mix.connect(this.wob).connect(this.lowShelf).connect(this.highShelf).connect(this.darkLP).connect(this.comp)
       .connect(this.makeup).connect(this.limiter).connect(this.sleepGain).connect(this.vol).connect(this.out);
     this.out.connect(this.analyser);
     this.out.connect(c.destination);
@@ -146,7 +153,7 @@ class Engine {
     this.dry = g(1); this.dry.connect(this.mix);
     this.revIn = g(.6);
     this.revHP = bq('highpass', 140, .5);
-    this.conv = c.createConvolver(); this.conv.normalize = true; this.conv.buffer = this.makeImpulse(9.5);
+    this.conv = c.createConvolver(); this.conv.normalize = true; this.conv.buffer = this.makeImpulse(4.5);
     this.revLP = bq('lowpass', 5000, .5);
     this.revOut = g(1.15);
     this.revIn.connect(this.revHP).connect(this.conv).connect(this.revLP).connect(this.revOut).connect(this.mix);
@@ -166,14 +173,7 @@ class Engine {
     this.dlyOut.connect(this.mix);
     const d2r = g(.45); this.dlyOut.connect(d2r).connect(this.revIn);
 
-    // shared modulators
-    this.wobDepth = g(2);
-    const w1 = c.createOscillator(); w1.frequency.value = .11; w1.connect(this.wobDepth);
-    const w2 = c.createOscillator(); w2.frequency.value = .29; const w2g = g(.5); w2.connect(w2g).connect(this.wobDepth);
-    w1.start(); w2.start();
     const cs = v => { const n = c.createConstantSource(); n.offset.value = v; n.start(); return n; };
-    this.padCut = cs(1200);
-    this.ghostLvl = cs(0);
     this.subLvl = cs(0);
 
     // layers
@@ -185,8 +185,22 @@ class Engine {
       bus.connect(td).connect(this.dry);
       bus.connect(tr).connect(this.revIn);
       if (s[2] > 0) bus.connect(tl).connect(this.dlyIn);
-      this.layers[k] = { bus };
+      this.layers[k] = { bus, in: bus };
     }
+    const lfoTo = (param, rate, depth) => {
+      const o = c.createOscillator(); o.frequency.value = rate; const d = g(depth);
+      o.connect(d).connect(param); o.start();
+    };
+    this.padLP = bq('lowpass', 1200, .7); this.padLP.connect(this.layers.pad.bus); this.layers.pad.in = this.padLP;
+    lfoTo(this.padLP.frequency, .031, 260); lfoTo(this.padLP.frequency, .073, 120);
+    this.bellLP = bq('lowpass', 5000, .5); this.bellLP.connect(this.layers.bell.bus); this.layers.bell.in = this.bellLP;
+    this.melLP = bq('lowpass', 2500, .6); this.melLP.connect(this.layers.mel.bus); this.layers.mel.in = this.melLP;
+    // choir: shared formant bank that slowly morphs between vowels
+    const choirIn = g(1); this.layers.choir.in = choirIn;
+    [[500, 180, 7, 1, .017], [1100, 420, 10, .5, .023], [2420, 120, 12, .22, .029]].forEach(([f, dep, q, amp, rate]) => {
+      const bp = bq('bandpass', f, q); lfoTo(bp.frequency, rate, dep);
+      const a = g(amp * 2.2); choirIn.connect(bp).connect(a).connect(this.layers.choir.bus);
+    });
 
     // waves
     const N = 32, re = new Float32Array(N), warm = new Float32Array(N), bright = new Float32Array(N);
@@ -263,11 +277,9 @@ class Engine {
     if (typeof type === 'string') o.type = type; else o.setPeriodicWave(type);
     o.frequency.value = f;
     o.detune.value = detune || 0;
-    this.wobDepth.connect(o.detune);
     o.start(t0);
     o.stop(t1);
     o.onended = () => {
-      try { this.wobDepth.disconnect(o.detune); } catch (e) {}
       try { o.disconnect(); } catch (e) {}
       if (cleanup) try { cleanup(); } catch (e) {}
     };
@@ -381,7 +393,7 @@ class Engine {
       else { while (m < 34) m += 12; while (m > 60) m -= 12; }
       return m;
     });
-    const cg = this.g(1); cg.connect(this.layers.pad.bus);
+    const cg = this.g(1); cg.connect(this.layers.pad.in);
     const ch = { t, dur, end: t + att + hold + rel + .2, degs, g: cg, oscs: [], killed: false };
     const lvl = .085 / Math.sqrt(notes.length / 3);
     notes.forEach((m, i) => {
@@ -393,7 +405,7 @@ class Engine {
     if (this.rng() < pc) {
       const n = 2 + (this.rng() < .4 ? 1 : 0);
       const cAtt = clamp(dur * .55, 8, 20), cRel = clamp(dur * .5, 8, 20);
-      const cg2 = this.g(1); cg2.connect(this.layers.choir.bus); ch.g2 = cg2;
+      const cg2 = this.g(1); cg2.connect(this.layers.choir.in); ch.g2 = cg2;
       for (let i = 0; i < n; i++) {
         let m = this.degToMidi(degs[i % degs.length], 3 + (i === 2 ? 1 : 0));
         while (m < 50) m += 12; while (m > 74) m -= 12;
@@ -406,53 +418,24 @@ class Engine {
   }
 
   padNote(midi, t0, att, hold, rel, level, pan, dest) {
-    const c = this.ctx, f = mtof(midi), end = t0 + att + hold + rel + .1;
+    const f = mtof(midi), end = t0 + att + hold + rel + .1;
     const spread = 4 + 12 * this.live.petri;
-    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = .6 + .6 * this.rng();
-    lp.frequency.value = (midi - 50) * 10;
-    this.padCut.connect(lp.frequency);
-    const lfo = c.createOscillator(); lfo.frequency.value = .02 + .06 * this.rng();
-    const lg = this.g(150 + 220 * this.rng()); lfo.connect(lg).connect(lp.frequency);
-    lfo.start(t0); lfo.stop(end);
     const env = this.g(0); swell(env.gain, t0, att, hold, rel, level);
     const p = this.pan(pan);
-    const gh = this.g(0); this.ghostLvl.connect(gh.gain);
-    const o1 = this.osc(this.waves.warm, f, t0, end, -spread, () => {
-      try { this.padCut.disconnect(lp.frequency); } catch (e) {}
-      try { this.ghostLvl.disconnect(gh.gain); } catch (e) {}
-      try { p.disconnect(); } catch (e) {}
-    });
+    const o1 = this.osc(this.waves.warm, f, t0, end, -spread, () => { try { p.disconnect(); } catch (e) {} });
     const o2 = this.osc(this.waves.warm, f, t0, end, spread);
-    const o3 = this.osc('sine', f * 2, t0, end, 3);
-    o1.connect(lp); o2.connect(lp); lp.connect(env); env.connect(p); p.connect(dest);
-    o3.connect(gh).connect(env);
-    return [o1, o2, o3, lfo];
+    o1.connect(env); o2.connect(env); env.connect(p); p.connect(dest);
+    return [o1, o2];
   }
 
   choirVoice(midi, t0, att, hold, rel, level, pan, dest) {
-    const c = this.ctx, f = mtof(midi), end = t0 + att + hold + rel + .1;
-    const vib = c.createOscillator(); vib.frequency.value = 4.2 + this.rng() * 1.2;
-    const vg = this.g(5);
-    vib.connect(vg); vib.start(t0); vib.stop(end);
+    const f = mtof(midi), end = t0 + att + hold + rel + .1;
     const o1 = this.osc(this.waves.bright, f, t0, end, -6);
     const o2 = this.osc(this.waves.bright, f, t0, end, 7);
-    vg.connect(o1.detune); vg.connect(o2.detune);
-    const src = this.g(1); o1.connect(src); o2.connect(src);
-    const keys = Object.keys(VOWELS);
-    const vA = VOWELS[this.pick(keys)], vB = VOWELS[this.pick(keys)];
-    const sum = this.g(1);
-    const Q = [7, 10, 12], amp = [1, .5, .22];
-    for (let k = 0; k < 3; k++) {
-      const bp = this.bq('bandpass', vA[k], Q[k]);
-      bp.frequency.setValueAtTime(vA[k], t0);
-      bp.frequency.linearRampToValueAtTime(vB[k], t0 + att + hold * .7);
-      bp.frequency.linearRampToValueAtTime(vA[k], end);
-      const a = this.g(amp[k]);
-      src.connect(bp).connect(a).connect(sum);
-    }
     const env = this.g(0); swell(env.gain, t0, att, hold, rel, level);
-    sum.connect(env).connect(this.pan(pan)).connect(dest);
-    return [o1, o2, vib];
+    o1.connect(env); o2.connect(env);
+    env.connect(this.pan(pan)).connect(dest);
+    return [o1, o2];
   }
 
   /* ---------- ornaments ---------- */
@@ -498,20 +481,19 @@ class Engine {
     mg.gain.setValueAtTime(f * (.3 + 2.2 * M) * vel, t);
     mg.gain.setTargetAtTime(0, t, dec * .15);
     mod.connect(mg).connect(car.frequency);
-    const lp = this.bq('lowpass', 2500 + 7000 * M, .5);
     const env = this.g(0);
     env.gain.setValueAtTime(0, t);
     env.gain.linearRampToValueAtTime(vel * .1, t + .012 + .02 * this.rng());
     env.gain.setTargetAtTime(0, t + .04, dec * .3);
-    car.connect(lp).connect(env).connect(this.pan(pan)).connect(this.layers.bell.bus);
+    car.connect(env).connect(this.pan(pan)).connect(this.layers.bell.in);
   }
 
   bowl(m, t, vel, pan) {
     const f = mtof(m);
     const dec = 10 + 12 * this.rng();
     const end = t + dec * 1.4;
-    const out = this.pan(pan); out.connect(this.layers.bell.bus);
-    for (const [r, a] of [[1, 1], [2.76, .42], [5.4, .2], [8.93, .09]]) {
+    const out = this.pan(pan); out.connect(this.layers.bell.in);
+    for (const [r, a] of [[1, 1], [2.76, .42], [5.4, .2]]) {
       if (f * r > 9000) continue;
       const env = this.g(0);
       const at = .06 + .06 * this.rng();
@@ -565,15 +547,12 @@ class Engine {
     const o1 = this.osc('triangle', f, t, end);
     const o2 = this.osc('sine', f * 2, t, end, 4);
     const g2 = this.g(.3);
-    const lp = this.bq('lowpass', 800 + 3500 * M, .6);
-    lp.frequency.setValueAtTime(800 + 3500 * M, t);
-    lp.frequency.setTargetAtTime(500, t, .9);
     const env = this.g(0);
     env.gain.setValueAtTime(0, t);
     env.gain.linearRampToValueAtTime(vel * .1, t + .015);
     env.gain.setTargetAtTime(0, t + .02, dec);
-    o1.connect(lp); o2.connect(g2).connect(lp);
-    lp.connect(env).connect(this.pan(pan)).connect(this.layers.mel.bus);
+    o1.connect(env); o2.connect(g2).connect(env);
+    env.connect(this.pan(pan)).connect(this.layers.mel.in);
   }
 
   scheduleWaves(to) {
@@ -632,11 +611,12 @@ class Engine {
     set(this.highShelf.gain, -10 + 13 * M);
     const sf = this.sleepFrac(now);
     set(this.darkLP.frequency, (1800 + 15000 * M * M) * (1 - .8 * sf) + 200);
-    set(this.padCut.offset, 550 + 2400 * M);
-    set(this.ghostLvl.offset, Math.max(0, M - .35) * .5);
+    set(this.padLP.frequency, 650 + 2600 * M);
+    set(this.bellLP.frequency, 2500 + 7000 * M);
+    set(this.melLP.frequency, 900 + 3200 * M);
     set(this.lowShelf.gain, -4 + 8 * U);
     set(this.subLvl.offset, Math.max(0, U - .4) * .9);
-    set(this.wobDepth.gain, 1.5 + 12 * P * P);
+    set(this.wobDepth.gain, .0003 + .0045 * P * P);
     if (this.rainG) {
       set(this.rainG.gain, Math.max(0, P - .45) * .2);
       set(this.crackG.gain, Math.max(0, P - .6) * .5);
@@ -662,7 +642,7 @@ class Engine {
     for (const key of Object.keys(this.sec)) this.secS[key] += (this.sec[key] - this.secS[key]) * k;
     this.applyMacros(now, .8);
     if (this.nextChordAt < now) this.nextChordAt = now + .2;
-    while (this.nextChordAt < now + 70) {
+    while (this.nextChordAt < now + 30) {
       const opt = this.freshAtt ? { att: this.freshAtt } : {};
       this.freshAtt = 0;
       this.nextChordAt += this.scheduleChord(this.nextChordAt, opt);

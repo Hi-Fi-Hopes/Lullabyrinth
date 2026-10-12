@@ -12,14 +12,29 @@ const browser = await puppeteer.launch({
   protocolTimeout: 1800000,
 });
 const page = await browser.newPage();
-page.on('console', m => console.log('[page]', m.text()));
+page.on('console', m => { const t = m.text(); if (!t.includes('outside nominal range')) console.log('[page]', t); });
 page.on('pageerror', e => console.log('[pageerror]', e.message));
 await page.goto(pathToFileURL(path.join(here, 'render.html')).href);
 await page.waitForFunction('window.ready === true');
-
-const styles = ['Glass Cathedral', 'Abyssal Lullaby', 'Moth Choir', 'Frost Garden', 'Tidal Drift', 'Singing Stones'];
 const report = [];
 let failed = false;
+
+// 0) CPU benchmark: how many times faster than real time each engine renders (single thread, like the audio thread)
+const benchUrl = e => pathToFileURL(path.join(here, 'render.html')).href + '?engine=' + encodeURIComponent(e);
+for (const [label, eng] of [['v1 (first build)', 'engine_v1.js'], ['v2 (slim)', '../app/src/main/assets/engine.js']]) {
+  await page.goto(benchUrl(eng));
+  await page.waitForFunction('window.ready === true');
+  for (const style of ['Moth Choir', 'Glass Cathedral', 'Frost Garden']) {
+    const r = await page.evaluate(o => window.render(o), { seconds: 120, sampleRate: 48000,
+      state: { style, root: 2, scale: 'Dorian', dream: false, macros: { tide: 1, aph: 1, moth: 1, under: 1, petri: 1 } } });
+    const line = `BENCH ${label.padEnd(17)} ${style.padEnd(16)} ${String(r.speed).padStart(6)}x realtime (${r.ms} ms for 120 s)`;
+    console.log(line); report.push(line);
+  }
+}
+await page.goto(benchUrl('../app/src/main/assets/engine.js'));
+await page.waitForFunction('window.ready === true');
+
+const styles = ['Glass Cathedral', 'Abyssal Lullaby', 'Moth Choir', 'Frost Garden', 'Tidal Drift', 'Singing Stones'];
 
 // 1) Level check per style at default knobs and at extreme knobs
 for (const style of styles) {

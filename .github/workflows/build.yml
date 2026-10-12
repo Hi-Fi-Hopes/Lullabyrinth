@@ -31,6 +31,7 @@ jobs:
         if: always()
         run: |
           if [ -f test/out/preview.wav ]; then
+            command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
             ffmpeg -loglevel error -y -i test/out/preview.wav -codec:a libmp3lame -q:a 3 test/out/lullabyrinth-preview.mp3
           fi
           if [ -f test/out/report.txt ]; then

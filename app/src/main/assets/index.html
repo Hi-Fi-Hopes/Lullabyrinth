@@ -14,7 +14,7 @@
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
     font-family: system-ui, Roboto, 'Google Sans', sans-serif; user-select: none; -webkit-user-select: none; }
   button { font: inherit; color: inherit; cursor: pointer; }
-  #sky { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #sky { position: fixed; inset: 0; width: 100%; height: 100%; display: block; image-rendering: auto; }
 
   main { position: relative; height: 100%; display: flex; flex-direction: column; align-items: center;
     justify-content: space-between; padding: 18px 16px 18px; }
@@ -342,7 +342,7 @@
   /* ---------- sky ---------- */
   const cv = $('#sky'), g = cv.getContext('2d');
   let W, H, dpr;
-  function resize() { dpr = Math.min(2, window.devicePixelRatio || 1); W = cv.width = innerWidth * dpr; H = cv.height = innerHeight * dpr; }
+  function resize() { dpr = .5; // soft glows look the same at low resolution and cost far less W = cv.width = innerWidth * dpr; H = cv.height = innerHeight * dpr; }
   addEventListener('resize', resize); resize();
   const orbs = Array.from({ length: 6 }, () => ({ a: Math.random() * 6.28, b: Math.random() * 6.28,
     sa: .00005 + Math.random() * .00007, sb: .00004 + Math.random() * .00006, r: .26 + Math.random() * .24, mix: Math.random() }));
@@ -376,7 +376,7 @@
     }
     for (const s of stars) {
       g.fillStyle = `rgba(235,230,255,${.1 + .3 * (.5 + .5 * Math.sin(s.p + t * .0007 * s.s))})`;
-      g.fillRect(s.x * W, s.y * H, s.s * dpr, s.s * dpr);
+      g.fillRect(s.x * W, s.y * H, Math.max(1, s.s * .8), Math.max(1, s.s * .8));
     }
     document.documentElement.style.setProperty('--h', Math.round(hue[0] + (hue[1] - hue[0]) * .5));
     if (playing && eng.state.dream) for (const m of MACROS) {
