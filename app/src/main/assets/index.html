@@ -131,6 +131,7 @@
   <div class="sec" style="margin-top:18px">
     <div class="toggle"><div>Let the knobs dream<small>each knob slowly wanders around where you set it</small></div><button class="sw" id="swDream"></button></div>
     <div class="toggle"><div>Wandering keys<small>every 10–25 minutes, drift to a neighboring key or mode</small></div><button class="sw" id="swWander"></button></div>
+    <div class="toggle"><div>Low-power mode<small>lighter engine for slower devices — use if the sound stutters (restarts the sound)</small></div><button class="sw" id="swLite"></button></div>
     <div class="toggle"><div>Hold knobs on conjure<small>conjure keeps your knob settings</small></div><button class="sw" id="swKnobs"></button></div>
     <div class="toggle" style="display:block"><div>Volume</div><input type="range" id="volume" min="0" max="1" step="0.01"></div>
   </div>
@@ -168,7 +169,12 @@
   }
 
   const Ctx = window.AudioContext || window.webkitAudioContext;
-  const ctx = new Ctx({ latencyHint: 'playback' });
+  // The engine runs at a reduced internal sample rate: ambient pads don't need 48 kHz, and it
+  // cuts the audio thread's work by a third (low-power mode: by more than half).
+  const lite = !!(saved.state && saved.state.lite);
+  let ctx;
+  try { ctx = new Ctx({ latencyHint: 'playback', sampleRate: lite ? 22050 : 32000 }); }
+  catch (e) { ctx = new Ctx({ latencyHint: 'playback' }); }
   if (ctx.state === 'running') ctx.suspend();
   let playing = false;
   const eng = new Engine(ctx, {
@@ -274,6 +280,7 @@
     $('#swDream').classList.toggle('on', !!s.dream);
     $('#swWander').classList.toggle('on', !!s.wander);
     $('#swKnobs').classList.toggle('on', !!locks.knobs);
+    $('#swLite').classList.toggle('on', !!s.lite);
     $('#volume').value = s.volume;
   }
 
@@ -320,6 +327,13 @@
   document.querySelectorAll('.hold').forEach(b => b.onclick = () => { locks[b.dataset.lock] = !locks[b.dataset.lock]; renderSheet(); save(); });
   $('#swDream').onclick = () => { eng.state.dream = !eng.state.dream; render(); save(); };
   $('#swWander').onclick = () => { eng.state.wander = !eng.state.wander; render(); save(); };
+  $('#swLite').onclick = () => {
+    eng.state.lite = !eng.state.lite;
+    const data = JSON.stringify({ state: eng.state, locks, sleepMin });
+    try { if (AB && AB.save) AB.save(data); else localStorage.setItem('lullabyrinth', data); } catch (e) {}
+    if (playing) call('setPlaying', false, '');
+    location.reload();
+  };
   $('#swKnobs').onclick = () => { locks.knobs = !locks.knobs; renderSheet(); save(); };
   $('#volume').oninput = e => { eng.setVolume(+e.target.value); save(); };
   document.querySelector('main').addEventListener('pointerdown', e => {
@@ -342,7 +356,8 @@
   /* ---------- sky ---------- */
   const cv = $('#sky'), g = cv.getContext('2d');
   let W, H, dpr;
-  function resize() { dpr = .5; // soft glows look the same at low resolution and cost far less W = cv.width = innerWidth * dpr; H = cv.height = innerHeight * dpr; }
+  // soft glows look the same at low resolution and cost far less
+  function resize() { dpr = .5; W = cv.width = innerWidth * dpr; H = cv.height = innerHeight * dpr; }
   addEventListener('resize', resize); resize();
   const orbs = Array.from({ length: 6 }, () => ({ a: Math.random() * 6.28, b: Math.random() * 6.28,
     sa: .00005 + Math.random() * .00007, sb: .00004 + Math.random() * .00006, r: .26 + Math.random() * .24, mix: Math.random() }));

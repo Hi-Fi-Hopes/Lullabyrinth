@@ -23,19 +23,18 @@ let failed = false;
 const benchUrl = e => pathToFileURL(path.join(here, 'render.html')).href + '?engine=' + encodeURIComponent(e);
 await page.goto(benchUrl('../app/src/main/assets/engine.js'));
 await page.waitForFunction('window.ready === true');
-const variants = [['baseline', {}], ['no reverb', { noConv: 1 }], ['no compressors', { noComp: 1 }], ['no param updates', { noAuto: 1 }],
-  ['no bells/melody', { noBells: 1 }], ['no pads', { noPads: 1 }], ['no choir', { noChoir: 1 }], ['no air/noise', { noAir: 1 }],
-  ['nothing but drone', { noConv: 1, noComp: 1, noAuto: 1, noBells: 1, noPads: 1, noChoir: 1, noAir: 1 }]];
-for (const style of ['Glass Cathedral', 'Singing Stones']) {
-  for (const [label, flags] of variants) {
-    await page.evaluate(f => { window.LB_BENCH = f; }, flags);
-    const r = await page.evaluate(o => window.render(o), { seconds: 60, sampleRate: 48000,
-      state: { style, root: 2, scale: 'Dorian', dream: true, macros: { tide: .9, aph: .9, moth: .8, under: .7, petri: .8 } } });
-    const line = `BENCH ${style.padEnd(16)} ${label.padEnd(18)} ${String(r.speed).padStart(6)}x realtime`;
+const benchCases = [['first build @48k', 'engine_v1.js', 48000, false], ['now @32k', '../app/src/main/assets/engine.js', 32000, false],
+  ['now low-power @22k', '../app/src/main/assets/engine.js', 22050, true]];
+for (const [label, eng, sr, lite] of benchCases) {
+  await page.goto(benchUrl(eng));
+  await page.waitForFunction('window.ready === true');
+  for (const style of ['Glass Cathedral', 'Singing Stones', 'Moth Choir']) {
+    const r = await page.evaluate(o => window.render(o), { seconds: 60, sampleRate: sr,
+      state: { style, root: 2, scale: 'Dorian', dream: true, lite, macros: { tide: .9, aph: .9, moth: .8, under: .7, petri: .8 } } });
+    const line = `BENCH ${label.padEnd(20)} ${style.padEnd(16)} ${String(r.speed).padStart(6)}x realtime`;
     console.log(line); report.push(line);
   }
 }
-await page.evaluate(() => { window.LB_BENCH = {}; });
 await page.goto(benchUrl('../app/src/main/assets/engine.js'));
 await page.waitForFunction('window.ready === true');
 
@@ -46,7 +45,7 @@ for (const style of styles) {
   for (const [label, macros] of [['default', null], ['max', { tide: 1, aph: 1, moth: 1, under: 1, petri: 1 }], ['min', { tide: 0, aph: 0, moth: 0, under: 0, petri: 0 }]]) {
     const state = { style, root: 2, scale: 'Dorian', dream: false };
     if (macros) state.macros = macros;
-    const r = await page.evaluate(o => window.render(o), { seconds: 90, sampleRate: 22050, state });
+    const r = await page.evaluate(o => window.render(o), { seconds: 90, sampleRate: 32000, state });
     const body = r.rms5s.slice(3);
     const line = `${style.padEnd(16)} ${label.padEnd(8)} peak ${String(r.peakDb).padStart(6)} dB  rms(min/avg/max) ${Math.min(...body)}/${(body.reduce((a, b) => a + b, 0) / body.length).toFixed(1)}/${Math.max(...body)} dB  errors ${r.errors.length} nan ${r.nan}`;
     console.log(line); report.push(line);
@@ -62,7 +61,7 @@ const scenario = [
   { t: 150, call: 'setSleep', args: [0.5] },
 ];
 const r = await page.evaluate(o => window.render(o), {
-  seconds: 185, sampleRate: 44100, wav: true,
+  seconds: 185, sampleRate: 32000, wav: true,
   state: { style: 'Glass Cathedral', root: 2, scale: 'Lydian', dream: true, name: 'Preview' }, script: scenario,
 });
 const line = `scenario peak ${r.peakDb} dB errors ${r.errors.length} nan ${r.nan}\nrms per 5s: ${r.rms5s.join(' ')}\nended as: ${r.final.name} — ${r.final.style}, ${r.final.scale}`;

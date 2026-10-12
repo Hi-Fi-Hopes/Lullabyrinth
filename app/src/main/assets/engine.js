@@ -127,13 +127,10 @@ class Engine {
     this.mix = g(1);
     this.lowShelf = bq('lowshelf', 140); this.highShelf = bq('highshelf', 3200);
     this.darkLP = bq('lowpass', 9000, .5);
-    this.comp = c.createDynamicsCompressor();
-    this.comp.threshold.value = -22; this.comp.knee.value = 14; this.comp.ratio.value = 3.5;
-    this.comp.attack.value = .08; this.comp.release.value = .7;
-    this.makeup = g(1.5);
+    this.makeup = g(.62);
     this.limiter = c.createDynamicsCompressor();
-    this.limiter.threshold.value = -5; this.limiter.knee.value = 0; this.limiter.ratio.value = 20;
-    this.limiter.attack.value = .003; this.limiter.release.value = .3;
+    this.limiter.threshold.value = -4; this.limiter.knee.value = 6; this.limiter.ratio.value = 12;
+    this.limiter.attack.value = .006; this.limiter.release.value = .5;
     this.sleepGain = g(1);
     this.vol = g(this.state.volume);
     this.out = g(0);
@@ -146,7 +143,7 @@ class Engine {
     this.wobDepth.connect(this.wob.delayTime);
     w1.start(); w2.start();
     const pre = this.mix.connect(this.wob).connect(this.lowShelf).connect(this.highShelf).connect(this.darkLP);
-    (X.noComp ? pre : pre.connect(this.comp).connect(this.makeup).connect(this.limiter)).connect(this.sleepGain).connect(this.vol).connect(this.out);
+    (X.noComp ? pre : pre.connect(this.makeup).connect(this.limiter)).connect(this.sleepGain).connect(this.vol).connect(this.out);
     this.out.connect(this.analyser);
     this.out.connect(c.destination);
 
@@ -154,7 +151,7 @@ class Engine {
     this.dry = g(1); this.dry.connect(this.mix);
     this.revIn = g(.6);
     this.revHP = bq('highpass', 140, .5);
-    this.conv = c.createConvolver(); this.conv.normalize = true; this.conv.buffer = this.makeImpulse(4.5);
+    this.conv = c.createConvolver(); this.conv.normalize = true; this.conv.buffer = this.makeImpulse(this.state.lite ? 2.2 : 3.2);
     this.revLP = bq('lowpass', 5000, .5);
     this.revOut = g(1.15);
     (X.noConv ? this.revIn.connect(this.revHP) : this.revIn.connect(this.revHP).connect(this.conv)).connect(this.revLP).connect(this.revOut).connect(this.mix);
@@ -385,7 +382,7 @@ class Engine {
     const hold = Math.max(0, dur - att);
     const deg = this.deg = this.nextDegree(L);
     const degs = [deg, deg + 2, deg + 4];
-    if (this.rng() < .45) degs.push(deg + 6);
+    if (!this.state.lite && this.rng() < .25) degs.push(deg + 6);
     const oct = st.padOct;
     const notes = degs.map((d, i) => {
       let m = this.degToMidi(d, oct + (i > 0 && this.rng() < .5 ? 1 : 0));
@@ -442,7 +439,7 @@ class Engine {
   /* ---------- ornaments ---------- */
   scheduleBells(now, to) {
     const st = this.style, T = this.live.tide;
-    const rate = this.X.noBells ? 0 : st.layers.bell * this.sec.bell * (.012 + .3 * Math.pow(T, 1.2));
+    const rate = this.X.noBells ? 0 : (this.state.lite ? .6 : 1) * st.layers.bell * this.sec.bell * (.012 + .26 * Math.pow(T, 1.2));
     if (this.nextBell < now) this.nextBell = now + this.rng() * 2;
     if (rate < .002) { this.nextBell = to + 1; return; }
     while (this.nextBell < to) {
@@ -603,7 +600,13 @@ class Engine {
     const st = this.style, s = this.secS;
     if (this.X.noAuto && this.autoDone) return;
     this.autoDone = true;
-    const set = (p, v, k) => p.setTargetAtTime(v, now, k || tc);
+    // only touch a parameter when its target has really moved: fewer automation events = less audio-thread work
+    const set = (p, v, k) => {
+      const last = p.__lb;
+      if (last !== undefined && Math.abs(v - last) <= Math.abs(last) * .008 + 1e-6) return;
+      p.__lb = v;
+      p.setTargetAtTime(v, now, k || tc);
+    };
     set(this.dry.gain, 1 - .5 * A);
     set(this.revIn.gain, .25 + .95 * A);
     set(this.dlyIn.gain, .12 + .5 * A);
@@ -691,7 +694,7 @@ class Engine {
     this.startAt(this.clock());
     if (this.useInterval) {
       clearInterval(this.timer);
-      this.timer = setInterval(() => this.tick(), 250);
+      this.timer = setInterval(() => this.tick(), 500);
     }
   }
 
