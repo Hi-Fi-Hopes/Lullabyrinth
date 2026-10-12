@@ -131,7 +131,7 @@ class Engine {
     this.comp = c.createDynamicsCompressor();
     this.comp.threshold.value = -24; this.comp.knee.value = 12; this.comp.ratio.value = 3;
     this.comp.attack.value = .25; this.comp.release.value = 1.5;
-    this.makeup = g(2.0);
+    this.makeup = g(1.1);
     this.limiter = c.createDynamicsCompressor();
     this.limiter.threshold.value = -2; this.limiter.knee.value = 4; this.limiter.ratio.value = 12;
     this.limiter.attack.value = .004; this.limiter.release.value = .4;
