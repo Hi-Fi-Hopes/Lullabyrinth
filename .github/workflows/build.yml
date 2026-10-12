@@ -22,7 +22,11 @@ jobs:
       - name: Render engine offline in Chrome
         env:
           CHROME: /usr/bin/google-chrome
-        run: node test/render.mjs
+        shell: bash
+        run: |
+          mkdir -p test/out
+          node test/render.mjs 2>&1 | tee test/out/console.txt
+          exit ${PIPESTATUS[0]}
       - name: Encode preview
         if: always()
         run: |
@@ -31,6 +35,16 @@ jobs:
           fi
           if [ -f test/out/report.txt ]; then
             echo '```' >> "$GITHUB_STEP_SUMMARY"; cat test/out/report.txt >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Publish test output
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=$(ls test/out/report.txt test/out/console.txt test/out/lullabyrinth-preview.mp3 2>/dev/null || true)
+          if [ -n "$files" ]; then
+            gh release create "engine-test-${{ github.run_number }}" $files --prerelease --latest=false \
+              --title "Engine test ${{ github.run_number }}" --notes "Offline render check" || true
           fi
       - uses: actions/upload-artifact@v4
         if: always()
