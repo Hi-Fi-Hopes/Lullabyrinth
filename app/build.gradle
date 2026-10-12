@@ -1,0 +1,48 @@
+plugins {
+    id 'com.android.application'
+}
+
+def runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
+
+android {
+    namespace 'com.hifihopes.lullabyrinth'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.hifihopes.lullabyrinth"
+        minSdk 26
+        targetSdk 35
+        versionCode runNumber
+        versionName "1.0.${runNumber}"
+    }
+
+    // Personal-use key kept in the repo so every build installs over the last one.
+    signingConfigs {
+        dream {
+            storeFile file('lullabyrinth.jks')
+            storePassword 'lullabyrinth'
+            keyAlias 'dream'
+            keyPassword 'lullabyrinth'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.dream
+        }
+        debug {
+            signingConfig signingConfigs.dream
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
