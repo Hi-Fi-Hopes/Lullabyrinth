@@ -127,10 +127,14 @@ class Engine {
     this.mix = g(1);
     this.lowShelf = bq('lowshelf', 140); this.highShelf = bq('highshelf', 3200);
     this.darkLP = bq('lowpass', 9000, .5);
-    this.makeup = g(.62);
+    // slow, gentle leveler: evens out quiet and busy settings without pumping on bell strikes
+    this.comp = c.createDynamicsCompressor();
+    this.comp.threshold.value = -24; this.comp.knee.value = 12; this.comp.ratio.value = 3;
+    this.comp.attack.value = .25; this.comp.release.value = 1.5;
+    this.makeup = g(2.0);
     this.limiter = c.createDynamicsCompressor();
-    this.limiter.threshold.value = -4; this.limiter.knee.value = 6; this.limiter.ratio.value = 12;
-    this.limiter.attack.value = .006; this.limiter.release.value = .5;
+    this.limiter.threshold.value = -2; this.limiter.knee.value = 4; this.limiter.ratio.value = 12;
+    this.limiter.attack.value = .004; this.limiter.release.value = .4;
     this.sleepGain = g(1);
     this.vol = g(this.state.volume);
     this.out = g(0);
@@ -143,7 +147,7 @@ class Engine {
     this.wobDepth.connect(this.wob.delayTime);
     w1.start(); w2.start();
     const pre = this.mix.connect(this.wob).connect(this.lowShelf).connect(this.highShelf).connect(this.darkLP);
-    (X.noComp ? pre : pre.connect(this.makeup).connect(this.limiter)).connect(this.sleepGain).connect(this.vol).connect(this.out);
+    (X.noComp ? pre : pre.connect(this.comp).connect(this.makeup).connect(this.limiter)).connect(this.sleepGain).connect(this.vol).connect(this.out);
     this.out.connect(this.analyser);
     this.out.connect(c.destination);
 

@@ -23,7 +23,7 @@ let failed = false;
 const benchUrl = e => pathToFileURL(path.join(here, 'render.html')).href + '?engine=' + encodeURIComponent(e);
 await page.goto(benchUrl('../app/src/main/assets/engine.js'));
 await page.waitForFunction('window.ready === true');
-const benchCases = [['first build @48k', 'engine_v1.js', 48000, false], ['now @32k', '../app/src/main/assets/engine.js', 32000, false],
+const benchCases = [['now @32k', '../app/src/main/assets/engine.js', 32000, false],
   ['now low-power @22k', '../app/src/main/assets/engine.js', 22050, true]];
 for (const [label, eng, sr, lite] of benchCases) {
   await page.goto(benchUrl(eng));
